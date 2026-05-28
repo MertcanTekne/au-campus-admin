@@ -1,6 +1,14 @@
 export type UserRole = "student" | "academic" | "academic_pending" | "admin";
 
+export type PanelRole = Extract<UserRole, "admin" | "academic">;
+
 export type AdminSection = "dashboard" | "users" | "approvals" | "classes";
+
+export type PanelUser = {
+  uid: string;
+  email: string;
+  role: PanelRole;
+};
 
 export type AdminUser = {
   uid: string;
@@ -18,6 +26,13 @@ export type DashboardStats = {
   pendingAcademicCount: number;
   adminCount: number;
   totalClasses: number;
+};
+
+export type AcademicDashboardStats = {
+  ownClassCount: number;
+  activeClassCount: number;
+  totalAnnouncementCount: number;
+  totalMaterialCount: number;
 };
 
 export type CampusClass = {

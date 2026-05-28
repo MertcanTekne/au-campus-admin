@@ -1,31 +1,42 @@
 "use client";
 
-import { AdminSection } from "@/types/admin";
+import { AdminSection, PanelRole } from "@/types/admin";
 
 type AdminLayoutProps = {
   activeSection: AdminSection;
-  adminEmail?: string | null;
+  panelRole: PanelRole;
+  userEmail?: string | null;
   isBusy?: boolean;
   onLogout: () => void;
   onSectionChange: (section: AdminSection) => void;
   children: React.ReactNode;
 };
 
-const navigationItems: { id: AdminSection; label: string }[] = [
+const adminNavigation: { id: AdminSection; label: string }[] = [
   { id: "dashboard", label: "Dashboard" },
   { id: "users", label: "Kullanıcılar" },
   { id: "approvals", label: "Akademik Onaylar" },
   { id: "classes", label: "Sınıflar" },
 ];
 
+const academicNavigation: { id: AdminSection; label: string }[] = [
+  { id: "dashboard", label: "Özet" },
+  { id: "classes", label: "Sınıflarım" },
+];
+
 export function AdminLayout({
   activeSection,
-  adminEmail,
+  panelRole,
+  userEmail,
   isBusy,
   onLogout,
   onSectionChange,
   children,
 }: AdminLayoutProps) {
+  const navigationItems = panelRole === "admin" ? adminNavigation : academicNavigation;
+  const panelTitle = panelRole === "admin" ? "Admin Panel" : "Akademik Panel";
+  const accountLabel = panelRole === "admin" ? "Giriş yapan admin" : "Giriş yapan akademisyen";
+
   return (
     <div className="min-h-screen bg-[#09090b] text-zinc-100">
       <div className="grid min-h-screen lg:grid-cols-[280px_1fr]">
@@ -35,9 +46,10 @@ export function AdminLayout({
               AÜ Campus
             </p>
             <h1 className="mt-2 text-2xl font-semibold tracking-tight text-white">
-              Admin Panel
+              {panelTitle}
             </h1>
           </div>
+
           <nav className="grid gap-2 sm:grid-cols-4 lg:grid-cols-1">
             {navigationItems.map((item) => (
               <button
@@ -59,9 +71,9 @@ export function AdminLayout({
         <div className="flex min-w-0 flex-col">
           <header className="flex flex-col gap-4 border-b border-white/10 bg-[#09090b]/95 px-5 py-4 sm:flex-row sm:items-center sm:justify-between lg:px-8">
             <div>
-              <p className="text-sm text-zinc-500">Giriş yapan admin</p>
+              <p className="text-sm text-zinc-500">{accountLabel}</p>
               <p className="mt-1 break-all text-sm font-medium text-zinc-100">
-                {adminEmail || "-"}
+                {userEmail || "-"}
               </p>
             </div>
             <button

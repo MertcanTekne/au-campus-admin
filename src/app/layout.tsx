@@ -13,8 +13,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "AÜ Campus Admin",
-  description: "AÜ Campus yönetim paneli",
+  title: "AÜ Campus Yönetim",
+  description: "AÜ Campus admin ve akademik yönetim paneli",
 };
 
 export default function RootLayout({

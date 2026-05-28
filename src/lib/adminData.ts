@@ -12,6 +12,7 @@ import {
 } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import {
+  AcademicDashboardStats,
   AdminUser,
   AuthorInfo,
   CampusClass,
@@ -20,6 +21,7 @@ import {
   ClassMaterial,
   CreateClassInput,
   DashboardStats,
+  PanelUser,
   UserRole,
 } from "@/types/admin";
 
@@ -36,9 +38,7 @@ export function getFirestoreWriteErrorMessage() {
 }
 
 export function formatDate(value: unknown) {
-  if (!value) {
-    return "-";
-  }
+  if (!value) return "-";
 
   if (
     typeof value === "object" &&
@@ -54,7 +54,6 @@ export function formatDate(value: unknown) {
 
   if (typeof value === "string" || typeof value === "number") {
     const date = new Date(value);
-
     if (!Number.isNaN(date.getTime())) {
       return new Intl.DateTimeFormat("tr-TR", {
         dateStyle: "medium",
@@ -101,17 +100,28 @@ function mapClassDocument(id: string, data: Record<string, unknown>): CampusClas
 function generateJoinCode() {
   const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
   let code = "";
-
   for (let i = 0; i < 6; i += 1) {
     code += alphabet[Math.floor(Math.random() * alphabet.length)];
   }
-
   return code;
+}
+
+function mergeClasses(primary: CampusClass[], secondary: CampusClass[]) {
+  const merged = new Map<string, CampusClass>();
+  [...primary, ...secondary].forEach((campusClass) => merged.set(campusClass.id, campusClass));
+  return [...merged.values()];
+}
+
+export function canManageClass(panelUser: PanelUser, campusClass: CampusClass) {
+  if (panelUser.role === "admin") return true;
+  return (
+    campusClass.instructorUid === panelUser.uid ||
+    (!!panelUser.email && campusClass.instructorEmail === panelUser.email)
+  );
 }
 
 export async function fetchUsers(readLimit = USER_READ_LIMIT) {
   const snapshot = await getDocs(query(collection(db, "users"), limit(readLimit)));
-
   return snapshot.docs.map((userDoc) =>
     mapUserDocument(userDoc.id, userDoc.data() as Record<string, unknown>),
   );
@@ -124,7 +134,6 @@ export async function fetchAcademicUsers() {
     limit(USER_READ_LIMIT),
   );
   const snapshot = await getDocs(academicQuery);
-
   return snapshot.docs.map((userDoc) =>
     mapUserDocument(userDoc.id, userDoc.data() as Record<string, unknown>),
   );
@@ -137,7 +146,6 @@ export async function fetchPendingAcademicUsers() {
     limit(USER_READ_LIMIT),
   );
   const snapshot = await getDocs(pendingQuery);
-
   return snapshot.docs.map((userDoc) =>
     mapUserDocument(userDoc.id, userDoc.data() as Record<string, unknown>),
   );
@@ -149,10 +157,43 @@ export async function updateUserRole(uid: string, role: UserRole) {
 
 export async function fetchClasses(readLimit = CLASS_READ_LIMIT) {
   const snapshot = await getDocs(query(collection(db, "classes"), limit(readLimit)));
-
   return snapshot.docs.map((classDoc) =>
     mapClassDocument(classDoc.id, classDoc.data() as Record<string, unknown>),
   );
+}
+
+export async function fetchClassesForPanel(panelUser: PanelUser) {
+  if (panelUser.role === "admin") {
+    return fetchClasses();
+  }
+
+  const uidSnapshot = await getDocs(
+    query(
+      collection(db, "classes"),
+      where("instructorUid", "==", panelUser.uid),
+      limit(CLASS_READ_LIMIT),
+    ),
+  );
+  const uidClasses = uidSnapshot.docs.map((classDoc) =>
+    mapClassDocument(classDoc.id, classDoc.data() as Record<string, unknown>),
+  );
+
+  if (!panelUser.email) {
+    return uidClasses;
+  }
+
+  const emailSnapshot = await getDocs(
+    query(
+      collection(db, "classes"),
+      where("instructorEmail", "==", panelUser.email),
+      limit(CLASS_READ_LIMIT),
+    ),
+  );
+  const emailClasses = emailSnapshot.docs.map((classDoc) =>
+    mapClassDocument(classDoc.id, classDoc.data() as Record<string, unknown>),
+  );
+
+  return mergeClasses(uidClasses, emailClasses);
 }
 
 export async function createClass(input: CreateClassInput) {
@@ -162,7 +203,6 @@ export async function createClass(input: CreateClassInput) {
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
   });
-
   return docRef.id;
 }
 
@@ -175,7 +215,6 @@ export async function updateClassActiveState(classId: string, isActive: boolean)
 
 export async function fetchDashboardStats(): Promise<DashboardStats> {
   const [users, classes] = await Promise.all([fetchUsers(500), fetchClasses(500)]);
-
   return {
     totalUsers: users.length,
     studentCount: users.filter((user) => user.role === "student").length,
@@ -183,6 +222,23 @@ export async function fetchDashboardStats(): Promise<DashboardStats> {
     pendingAcademicCount: users.filter((user) => user.role === "academic_pending").length,
     adminCount: users.filter((user) => user.role === "admin").length,
     totalClasses: classes.length,
+  };
+}
+
+export async function fetchAcademicDashboardStats(
+  panelUser: PanelUser,
+): Promise<AcademicDashboardStats> {
+  const classes = await fetchClassesForPanel(panelUser);
+  const details = await Promise.all(classes.map((campusClass) => fetchClassDetail(campusClass.id)));
+
+  return {
+    ownClassCount: classes.length,
+    activeClassCount: classes.filter((campusClass) => campusClass.isActive).length,
+    totalAnnouncementCount: details.reduce(
+      (total, detail) => total + detail.announcements.length,
+      0,
+    ),
+    totalMaterialCount: details.reduce((total, detail) => total + detail.materials.length, 0),
   };
 }
 
@@ -203,7 +259,6 @@ export async function fetchClassDetail(classId: string): Promise<ClassDetail> {
   return {
     announcements: announcementsSnapshot.docs.map((announcementDoc) => {
       const data = announcementDoc.data() as Record<string, unknown>;
-
       return {
         id: announcementDoc.id,
         title: readString(data, "title"),
@@ -216,7 +271,6 @@ export async function fetchClassDetail(classId: string): Promise<ClassDetail> {
     }),
     materials: materialsSnapshot.docs.map((materialDoc) => {
       const data = materialDoc.data() as Record<string, unknown>;
-
       return {
         id: materialDoc.id,
         title: readString(data, "title"),
@@ -245,7 +299,6 @@ export async function addAnnouncement(
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
   });
-
   await updateDoc(doc(db, "classes", classId, "announcements", docRef.id), { id: docRef.id });
 }
 
@@ -268,7 +321,6 @@ export async function addMaterial(
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
   });
-
   await updateDoc(doc(db, "classes", classId, "materials", docRef.id), { id: docRef.id });
 }
 
